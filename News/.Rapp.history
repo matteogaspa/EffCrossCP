@@ -1,0 +1,4 @@
+load("/Users/gaspa/Desktop/Phd/Research/CMU/CrossConformal/CODE copia/News/news.RData")
+cov_res_lm
+cov_lm_fn
+len_lm_fn

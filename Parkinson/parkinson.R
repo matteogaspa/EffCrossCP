@@ -1,0 +1,146 @@
+rm(list = ls())
+library(conformalInference)
+source("utils2.R")
+
+# set hyper parameters
+n_train <- 3000
+K       <- 10
+alpha   <- 0.1
+lambda  <- 0.01
+ntree   <- 25
+
+funs1 <- lasso.funs(lambda=lambda, standardize=F)
+funs2 <- rf.funs(ntree=ntree)
+
+# Read dataset
+dati <- read.csv(file = "merged_dataset.csv")
+
+# creation of the outcome and the X matrix
+y <- dati$total_UPDRS
+X <- dati[,-c(1,2,6,7,8,11,12,13)]
+X[,1:12] <- scale(X[,1:12])
+
+n <- NROW(y)
+n_test <- n-n_train
+
+set.seed(123)
+train <- sample(1:NROW(y), n_train, replace = F)
+test  <- setdiff(1:NROW(y), train)
+
+ytrain <- y[train]
+Xtrain <- X[train,]
+
+ytest <- y[test]
+Xtest <- X[test,]
+
+# Simulation study 
+B <- 100
+
+cov_lasso_fn <- len_lasso_fn <- NULL 
+cov_rf_fn    <- len_rf_fn <- NULL
+
+res_cov_lasso <- res_cov_rf <- res_len_lasso <- res_len_rf <- matrix(NA, ncol = 7, nrow = B)
+
+set.seed(123)
+for(b in 1:B){
+  train <- sample(1:NROW(y), n_train, replace = F)
+  test  <- setdiff(1:NROW(y), train)
+  
+  ytrain <- y[train]
+  Xtrain <- X[train,]
+  
+  ytest <- y[test]
+  Xtest <- X[test,]
+  
+  # Cross-conf
+  cr_lasso <- cc_lasso(y = ytrain, X = Xtrain, x_test = Xtest, K = K, alpha = alpha, lambda = lambda)
+  cr_rf    <- cc_rf(y = ytrain, X = Xtrain, x_test = Xtest, K = K, alpha = alpha, ntree = ntree)
+  
+  # split
+  splt_lasso <- conformal.pred.split(x = Xtrain, y = ytrain, x0 = as.matrix(Xtest), train.fun = funs1$train.fun, predict.fun = funs1$predict.fun, alpha = alpha)
+  splt_rf    <- conformal.pred.split(x = Xtrain, y = ytrain, x0 = as.matrix(Xtest), train.fun = funs2$train.fun, predict.fun = funs2$predict.fun, alpha = alpha)
+  
+  # split 2alpha
+  splt2_lasso <- conformal.pred.split(x = Xtrain, y = ytrain, x0 = as.matrix(Xtest), train.fun = funs1$train.fun, predict.fun = funs1$predict.fun, alpha = 2*alpha)
+  splt2_rf    <- conformal.pred.split(x = Xtrain, y = ytrain, x0 = as.matrix(Xtest), train.fun = funs2$train.fun, predict.fun = funs2$predict.fun, alpha = 2*alpha)
+  
+  
+  
+  cov_lasso <- len_lasso <- cov_rf <- len_rf <- matrix(NA, nrow = n_test, ncol = 7)
+  
+  for(i in 1:n_test){
+    # mod-cc
+    cov_lasso[i,1] <- cov_int(cr_lasso$int_cc[[i]]$set, ytest[i])
+    cov_rf[i,1]    <- cov_int(cr_rf$int_cc[[i]]$set, ytest[i])
+    len_lasso[i,1] <- len_int(cr_lasso$int_cc[[i]]$set)
+    len_rf[i,1]    <- len_int(cr_rf$int_cc[[i]]$set)
+    # e-cc
+    cov_lasso[i,2] <- cov_int(cr_lasso$int_cce[[i]]$set, ytest[i])
+    cov_rf[i,2]    <- cov_int(cr_rf$int_cce[[i]]$set, ytest[i])
+    len_lasso[i,2] <- len_int(cr_lasso$int_cce[[i]]$set)
+    len_rf[i,2]    <- len_int(cr_rf$int_cce[[i]]$set)
+    # u-cc
+    cov_lasso[i,3] <- cov_int(cr_lasso$int_ccu[[i]]$set, ytest[i])
+    cov_rf[i,3]    <- cov_int(cr_rf$int_ccu[[i]]$set, ytest[i])
+    len_lasso[i,3] <- len_int(cr_lasso$int_ccu[[i]]$set)
+    len_rf[i,3]    <- len_int(cr_rf$int_ccu[[i]]$set)
+    # eu-cc
+    cov_lasso[i,4] <- cov_int(cr_lasso$int_cceu[[i]]$set, ytest[i])
+    cov_rf[i,4]    <- cov_int(cr_rf$int_cceu[[i]]$set, ytest[i])
+    len_lasso[i,4] <- len_int(cr_lasso$int_cceu[[i]]$set)
+    len_rf[i,4]    <- len_int(cr_rf$int_cceu[[i]]$set)
+    # cc
+    cov_lasso[i,5] <- cov_int(cr_lasso$int_ccs[[i]]$set, ytest[i])
+    cov_rf[i,5]    <- cov_int(cr_rf$int_ccs[[i]]$set, ytest[i])
+    len_lasso[i,5] <- len_int(cr_lasso$int_ccs[[i]]$set)
+    len_rf[i,5]    <- len_int(cr_rf$int_ccs[[i]]$set)
+    # splt
+    cov_lasso[i,6] <- cov_int(matrix(c(splt_lasso$lo[i], splt_lasso$up[i]), ncol = 2), ytest[i])
+    cov_rf[i,6]    <- cov_int(matrix(c(splt_rf$lo[i], splt_rf$up[i]), ncol = 2), ytest[i])
+    len_lasso[i,6] <- len_int(matrix(c(splt_lasso$lo[i], splt_lasso$up[i]), ncol = 2))
+    len_rf[i,6]    <- len_int(matrix(c(splt_rf$lo[i], splt_rf$up[i]), ncol = 2))
+    # splt2
+    cov_lasso[i,7] <- cov_int(matrix(c(splt2_lasso$lo[i], splt2_lasso$up[i]), ncol = 2), ytest[i])
+    cov_rf[i,7]    <- cov_int(matrix(c(splt2_rf$lo[i], splt2_rf$up[i]), ncol = 2), ytest[i])
+    len_lasso[i,7] <- len_int(matrix(c(splt2_lasso$lo[i], splt2_lasso$up[i]), ncol = 2))
+    len_rf[i,7]    <- len_int(matrix(c(splt2_rf$lo[i], splt2_rf$up[i]), ncol = 2))
+  }
+  cov_lasso_fn <- rbind(cov_lasso_fn, cov_lasso)
+  cov_rf_fn    <- rbind(cov_rf_fn, cov_rf)
+  len_lasso_fn <- rbind(len_lasso_fn, len_lasso)
+  len_rf_fn    <- rbind(len_rf_fn, len_rf)
+  
+  res_cov_lasso[b,] <- colMeans(cov_lasso)
+  res_cov_rf[b,]    <- colMeans(cov_rf)
+  res_len_lasso[b,] <- colMeans(len_lasso)
+  res_len_rf[b,]    <- colMeans(len_rf)
+
+  cat(b,"\n")
+}
+
+
+save(cov_lasso_fn, cov_rf_fn, len_lasso_fn, len_rf_fn,
+     res_cov_lasso, res_cov_rf, res_len_lasso, res_len_rf,
+     file = "parkinson.RData")
+
+tab_lasso <- rbind(
+  apply(len_lasso_fn, 2, mean),
+  apply(len_lasso_fn, 2, sd),
+  apply(len_lasso_fn, 2, median),
+  apply(len_lasso_fn, 2, min),
+  apply(len_lasso_fn, 2, max),
+  apply(cov_lasso_fn, 2, mean)
+)
+
+tab_rf <- rbind(
+  apply(len_rf_fn, 2, mean),
+  apply(len_rf_fn, 2, sd),
+  apply(len_rf_fn, 2, median),
+  apply(len_rf_fn, 2, min),
+  apply(len_rf_fn, 2, max),
+  apply(cov_rf_fn, 2, mean)
+)
+
+rownames(tab_lasso) <- rownames(tab_rf) <- c("Mean", "Sd", "Median", "Min", "Max", "Coverage")
+xtable::xtable(tab_lasso, digits = 3)
+xtable::xtable(tab_rf, digits = 3)
